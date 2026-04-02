@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: expense-prod-db
+    environment:
+      POSTGRES_DB: expense_ai_db
+      POSTGRES_USER: expense_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-expense_password}
+    volumes:
+      # Uses the dedicated EBS volume mounted on the host
+      - /data/postgres/data:/var/lib/postgresql/data
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U expense_user -d expense_ai_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  backend:
+    image: ${BACKEND_IMAGE_URL}:latest
+    container_name: expense-prod-backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/expense_ai_db
+      SPRING_DATASOURCE_USERNAME: expense_user
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-expense_password}
+      # JWT Secret - generate a secure one for production!
+      APP_SECURITY_JWT_SECRET: ${JWT_SECRET:-your-super-secure-jwt-secret-change-me-in-production}
+      FRONTEND_URL: ${FRONTEND_URL:-http://18.102.192.178}
+      # Google OAuth2 (optional — set these to enable Google login)
+      # SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      # SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      # SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_SCOPE: email,profile
+      # Email for password reset (optional — set these to enable email sending)
+      # SPRING_MAIL_HOST: smtp.gmail.com
+      # SPRING_MAIL_PORT: 587
+      # SPRING_MAIL_USERNAME: ${MAIL_USERNAME}
+      # SPRING_MAIL_PASSWORD: ${MAIL_PASSWORD}
+      # SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH: "true"
+      # SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    networks:
+      - app-network
+
+  frontend:
+    image: ${FRONTEND_IMAGE_URL}:latest
+    container_name: expense-prod-frontend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # For Let's Encrypt certificates (when domain is configured)
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+    depends_on:
+      - backend
+    restart: always
+    networks:
+      - app-network
+
+  # Certbot for SSL certificates (optional - enable when you have a domain)
+  # certbot:
+  #   image: certbot/certbot
+  #   container_name: expense-certbot
+  #   volumes:
+  #     - ./certbot/conf:/etc/letsencrypt
+  #     - ./certbot/www:/var/www/certbot
+  #   entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+  #   networks:
+  #     - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  certbot_conf:
+  certbot_www:

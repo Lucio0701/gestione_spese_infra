@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: expense-ai-postgres
+    environment:
+      POSTGRES_DB: expense_ai_db
+      POSTGRES_USER: expense_user
+      POSTGRES_PASSWORD: expense_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - expense-network
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: expense-ai-backend
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/expense_ai_db
+      SPRING_DATASOURCE_USERNAME: expense_user
+      SPRING_DATASOURCE_PASSWORD: expense_password
+    depends_on:
+      - postgres
+    networks:
+      - expense-network
+    restart: on-failure
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: expense-ai-frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    networks:
+      - expense-network
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
+
+networks:
+  expense-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
